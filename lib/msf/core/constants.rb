@@ -55,6 +55,7 @@ module HttpClients
   SAFARI = "Safari"
   OPERA  = "Opera"
   CHROME = "Chrome"
+  EDGE = "Edge"
 
   UNKNOWN = "Unknown"
 end
@@ -131,6 +132,8 @@ end
 MSF_LICENSE      = "Metasploit Framework License (BSD)"
 GPL_LICENSE      = "GNU Public License v2.0"
 BSD_LICENSE      = "BSD License"
+# Location: https://github.com/CoreSecurity/impacket/blob/1dba4c20e0d47ec614521e251d072116f75f3ef8/LICENSE
+CORE_LICENSE     = "CORE Security License (Apache 1.1)"
 ARTISTIC_LICENSE = "Perl Artistic License"
 UNKNOWN_LICENSE  = "Unknown License"
 LICENSES         =
@@ -138,6 +141,7 @@ LICENSES         =
     MSF_LICENSE,
     GPL_LICENSE,
     BSD_LICENSE,
+    CORE_LICENSE,
     ARTISTIC_LICENSE,
     UNKNOWN_LICENSE
   ]

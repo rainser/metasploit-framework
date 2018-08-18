@@ -1,13 +1,11 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
 require 'net/ssh'
 
 class MetasploitModule < Msf::Auxiliary
-
   include Msf::Auxiliary::Scanner
   include Msf::Auxiliary::Report
   include Msf::Auxiliary::CommandShell
@@ -82,13 +80,14 @@ class MetasploitModule < Msf::Auxiliary
     pass = Rex::Text.rand_text_alphanumeric(64_000)
     factory = ssh_socket_factory
     opt_hash = {
-      :auth_methods  => ['password', 'keyboard-interactive'],
-      :port          => port,
-      :use_agent     => false,
-      :password      => pass,
-      :config        => false,
-      :proxy         => factory,
-      :non_interactive => true
+      :auth_methods    => ['password', 'keyboard-interactive'],
+      :port            => port,
+      :use_agent       => false,
+      :password        => pass,
+      :config          => false,
+      :proxy           => factory,
+      :non_interactive => true,
+      :verify_host_key => :never
     }
 
     opt_hash.merge!(:verbose => :debug) if datastore['SSH_DEBUG']
@@ -193,5 +192,4 @@ class MetasploitModule < Msf::Auxiliary
       user_list.each{ |user| show_result(attempt_user(user, ip), user, ip) }
     end
   end
-
 end

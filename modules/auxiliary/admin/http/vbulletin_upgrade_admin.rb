@@ -1,12 +1,9 @@
 ##
-# This module requires Metasploit: http://metasploit.com/download
+# This module requires Metasploit: https://metasploit.com/download
 # Current source: https://github.com/rapid7/metasploit-framework
 ##
 
-require 'msf/core'
-
 class MetasploitModule < Msf::Auxiliary
-
   include Msf::Exploit::Remote::HttpClient
   include Msf::Auxiliary::Report
 
@@ -26,6 +23,7 @@ class MetasploitModule < Msf::Auxiliary
       'License'        => MSF_LICENSE,
       'References'     =>
         [
+          [ 'CVE', '2013-6129' ],
           [ 'URL', 'http://blog.imperva.com/2013/10/threat-advisory-a-vbulletin-exploit-administrator-injection.html'],
           [ 'OSVDB', '98370' ],
           [ 'URL', 'http://www.vbulletin.com/forum/forum/vbulletin-announcements/vbulletin-announcements_aa/3991423-potential-vbulletin-exploit-vbulletin-4-1-vbulletin-5']
@@ -38,7 +36,7 @@ class MetasploitModule < Msf::Auxiliary
         OptString.new('USERNAME', [true, 'The username for the new admin account', 'msf']),
         OptString.new('PASSWORD', [true, 'The password for the new admin account', 'password']),
         OptString.new('EMAIL', [true, 'The email for the new admin account', 'msf@email.loc'])
-      ], self.class)
+      ])
   end
 
   def user

@@ -1,27 +1,19 @@
 #!/usr/bin/env ruby
 # -*- coding: binary -*-
+
 #
 # Check (recursively) for style compliance violations and other
 # tree inconsistencies.
 #
 # by jduck, todb, and friends
 #
+
 require 'fileutils'
 require 'find'
 require 'time'
 
 CHECK_OLD_RUBIES = !!ENV['MSF_CHECK_OLD_RUBIES']
 SUPPRESS_INFO_MESSAGES = !!ENV['MSF_SUPPRESS_INFO_MESSAGES']
-TITLE_WHITELIST = %w{
-  a an and as at avserve callmenum configdir connect debug docbase dtspcd
-  execve file for from getinfo goaway gsad hetro historysearch htpasswd ibstat
-  id in inetd iseemedia jhot libxslt lmgrd lnk load main map migrate mimencode
-  multisort name net netcat nodeid ntpd nttrans of on onreadystatechange or
-  ovutil path pbot pfilez pgpass pingstr pls popsubfolders prescan readvar
-  relfile rev rexec rlogin rsh rsyslog sa sadmind say sblistpack spamd
-  sreplace tagprinter the tnftp to twikidraw udev uplay user username via
-  welcome with ypupdated zsudo
-}
 
 if CHECK_OLD_RUBIES
   require 'rvm'
@@ -44,18 +36,14 @@ class String
   def cyan
     "\e[1;36;40m#{self}\e[0m"
   end
-
-  def ascii_only?
-    self =~ Regexp.new('[\x00-\x08\x0b\x0c\x0e-\x19\x7f-\xff]', nil, 'n') ? false : true
-  end
 end
 
 class Msftidy
 
   # Status codes
-  OK       = 0x00
-  WARNINGS = 0x10
-  ERRORS   = 0x20
+  OK       = 0
+  WARNING  = 1
+  ERROR    = 2
 
   # Some compiles regexes
   REGEX_MSF_EXPLOIT = / \< Msf::Exploit/
@@ -83,7 +71,7 @@ class Msftidy
   # error.
   def warn(txt, line=0) line_msg = (line>0) ? ":#{line}" : ''
     puts "#{@full_filepath}#{line_msg} - [#{'WARNING'.yellow}] #{cleanup_text(txt)}"
-    @status == ERRORS ? @status = ERRORS : @status = WARNINGS
+    @status = WARNING if @status < WARNING
   end
 
   #
@@ -95,7 +83,7 @@ class Msftidy
   def error(txt, line=0)
     line_msg = (line>0) ? ":#{line}" : ''
     puts "#{@full_filepath}#{line_msg} - [#{'ERROR'.red}] #{cleanup_text(txt)}"
-    @status = ERRORS
+    @status = ERROR if @status < ERROR
   end
 
   # Currently unused, but some day msftidy will fix errors for you.
@@ -118,12 +106,6 @@ class Msftidy
   # The functions below are actually the ones checking the source code
   #
   ##
-
-  def check_mode
-    unless (@stat.mode & 0111).zero?
-      warn("Module should not be marked executable")
-    end
-  end
 
   def check_shebang
     if @lines.first =~ /^#!/
@@ -156,8 +138,9 @@ class Msftidy
   end
 
   def check_ref_identifiers
-    in_super = false
-    in_refs  = false
+    in_super     = false
+    in_refs      = false
+    cve_assigned = false
 
     @lines.each do |line|
       if !in_super and line =~ /\s+super\(/
@@ -177,9 +160,8 @@ class Msftidy
 
         case identifier
         when 'CVE'
+          cve_assigned = true
           warn("Invalid CVE format: '#{value}'") if value !~ /^\d{4}\-\d{4,}$/
-        when 'OSVDB'
-          warn("Invalid OSVDB format: '#{value}'") if value !~ /^\d+$/
         when 'BID'
           warn("Invalid BID format: '#{value}'") if value !~ /^\d+$/
         when 'MSB'
@@ -196,10 +178,8 @@ class Msftidy
           warn("Invalid WPVDB reference") if value !~ /^\d+$/
         when 'PACKETSTORM'
           warn("Invalid PACKETSTORM reference") if value !~ /^\d+$/
-        when 'URL'
-          if value =~ /^http:\/\/www\.osvdb\.org/
-            warn("Please use 'OSVDB' for '#{value}'")
-          elsif value =~ /^http:\/\/cvedetails\.com\/cve/
+        when 'URL' || 'AKA'
+          if value =~ /^http:\/\/cvedetails\.com\/cve/
             warn("Please use 'CVE' for '#{value}'")
           elsif value =~ /^http:\/\/www\.securityfocus\.com\/bid\//
             warn("Please use 'BID' for '#{value}'")
@@ -217,15 +197,39 @@ class Msftidy
         end
       end
     end
+
+    # This helps us track when CVEs aren't assigned
+    info('No CVE references found. Please check before you land!') unless cve_assigned
+  end
+
+  def check_self_class
+    in_register = false
+    @lines.each do |line|
+      (in_register = true) if line =~ /^\s*register_(?:advanced_)?options/
+      (in_register = false) if line =~ /^\s*end/
+      if in_register && line =~ /\],\s*self\.class\s*\)/
+        warn('Explicitly using self.class in register_* is not necessary')
+        break
+      end
+    end
   end
 
   # See if 'require "rubygems"' or equivalent is used, and
-  # warn if so.  Since Ruby 1.9 this has not been necessary and
+  # warn if so. Since Ruby 1.9 this has not been necessary and
   # the framework only suports 1.9+
   def check_rubygems
     @lines.each do |line|
       if line_has_require?(line, 'rubygems')
         warn("Explicitly requiring/loading rubygems is not necessary")
+        break
+      end
+    end
+  end
+
+  def check_msf_core
+    @lines.each do |line|
+      if line_has_require?(line, 'msf/core')
+        warn('Explicitly requiring/loading msf/core is not necessary')
         break
       end
     end
@@ -309,10 +313,6 @@ class Msftidy
           end
         end
 
-        if not mod_title.ascii_only?
-          error("Please avoid unicode or non-printable characters in module title.")
-        end
-
         # Since we're looking at the module title, this line clearly cannot be
         # the author block, so no point to run more code below.
         next
@@ -344,10 +344,6 @@ class Msftidy
 
         if author_name =~ /^@.+$/
           error("No Twitter handles, please. Try leaving it in a comment instead.")
-        end
-
-        if not author_name.ascii_only?
-          error("Please avoid unicode or non-printable characters in Author")
         end
 
         unless author_name.empty?
@@ -423,7 +419,7 @@ class Msftidy
         error("Invalid ranking. You have '#{$1}'")
       end
     else
-      info('No Rank specified. The default is NormalRanking. Please add an explicit Rank value.')
+      warn('No Rank specified. The default is NormalRanking. Please add an explicit Rank value.')
     end
   end
 
@@ -448,19 +444,6 @@ class Msftidy
       end
     else
       error('Exploit is missing a disclosure date') if is_exploit_module?
-    end
-  end
-
-  def check_title_casing
-    if @source =~ /["']Name["'][[:space:]]*=>[[:space:]]*['"](.+)['"],*$/
-      words = $1.split
-      words.each do |word|
-        if TITLE_WHITELIST.include?(word)
-          next
-        elsif word =~ /^[a-z]+$/
-          warn("Suspect capitalization in module title: '#{word}'")
-        end
-      end
     end
   end
 
@@ -545,10 +528,6 @@ class Msftidy
       src_ended = true if ln =~ /^__END__$/
       next if src_ended
 
-      if ln =~ /[\x00-\x08\x0b\x0c\x0e-\x19\x7f-\xff]/
-        error("Unicode detected: #{ln.inspect}", idx)
-      end
-
       if ln =~ /[ \t]$/
         warn("Spaces at EOL", idx)
       end
@@ -582,7 +561,7 @@ class Msftidy
       next if ln =~ /^[[:space:]]*#/
 
       if ln =~ /\$std(?:out|err)/i or ln =~ /[[:space:]]puts/
-        next if ln =~ /^[\s]*["][^"]+\$std(?:out|err)/
+        next if ln =~ /["'][^"']*\$std(?:out|err)[^"']*["']/
         no_stdio = false
         error("Writes to stdout", idx)
       end
@@ -622,41 +601,35 @@ class Msftidy
   end
 
   def check_vars_get
-    test = @source.scan(/send_request_cgi\s*\(\s*\{?\s*['"]uri['"]\s*=>\s*[^=})]*?\?[^,})]+/im)
+    test = @source.scan(/send_request_cgi\s*\(?\s*\{?\s*['"]uri['"]\s*=>\s*[^=})]*?\?[^,})]+/im)
     unless test.empty?
       test.each { |item|
-        info("Please use vars_get in send_request_cgi: #{item}")
+        warn("Please use vars_get in send_request_cgi: #{item}")
       }
     end
   end
 
   def check_newline_eof
     if @source !~ /(?:\r\n|\n)\z/m
-      info('Please add a newline at the end of the file')
-    end
-  end
-
-  def check_sock_get
-    if @source =~ /\s+sock\.get(\s*|\(|\d+\s*|\d+\s*,\d+\s*)/m && @source !~ /sock\.get_once/
-      info('Please use sock.get_once instead of sock.get')
+      warn('Please add a newline at the end of the file')
     end
   end
 
   def check_udp_sock_get
     if @source =~ /udp_sock\.get/m && @source !~ /udp_sock\.get\([a-zA-Z0-9]+/
-      info('Please specify a timeout to udp_sock.get')
+      warn('Please specify a timeout to udp_sock.get')
     end
   end
 
   # At one point in time, somebody committed a module with a bad metasploit.com URL
-  # in the header -- http//metasploit.com/download rather than http://metasploit.com/download.
+  # in the header -- http//metasploit.com/download rather than https://metasploit.com/download.
   # This module then got copied and committed 20+ times and is used in numerous other places.
   # This ensures that this stops.
   def check_invalid_url_scheme
     test = @source.scan(/^#.+http\/\/(?:www\.)?metasploit.com/)
     unless test.empty?
       test.each { |item|
-        info("Invalid URL: #{item}")
+        warn("Invalid URL: #{item}")
       }
     end
   end
@@ -688,15 +661,25 @@ class Msftidy
     end
   end
 
+  # Check for modules using the deprecated architectures
+  #
+  # @see https://github.com/rapid7/metasploit-framework/pull/7507
+  def check_arch
+    if @source =~ /ARCH_X86_64/
+      error('Please don\'t use the ARCH_X86_64 architecture, use ARCH_X64 instead')
+    end
+  end
+
   #
   # Run all the msftidy checks.
   #
   def run_checks
-    check_mode
     check_shebang
     check_nokogiri
     check_rubygems
+    check_msf_core
     check_ref_identifiers
+    check_self_class
     check_old_keywords
     check_verbose_option
     check_badchars
@@ -704,7 +687,6 @@ class Msftidy
     check_old_rubies
     check_ranking
     check_disclosure_date
-    check_title_casing
     check_bad_terms
     check_bad_super_class
     check_bad_class_name
@@ -715,12 +697,12 @@ class Msftidy
     check_vuln_codes
     check_vars_get
     check_newline_eof
-    check_sock_get
     check_udp_sock_get
     check_invalid_url_scheme
     check_print_debug
     check_register_datastore_debug
     check_use_datastore_debug
+    check_arch
   end
 
   private
@@ -764,6 +746,8 @@ if __FILE__ == $PROGRAM_NAME
         next if full_filepath =~ /\.git[\x5c\x2f]/
         next unless File.file? full_filepath
         next unless full_filepath =~ /\.rb$/
+        # Executable files are now assumed to be external modules
+        next if File.executable?(full_filepath)
         msftidy = Msftidy.new(full_filepath)
         msftidy.run_checks
         @exit_status = msftidy.status if (msftidy.status > @exit_status.to_i)

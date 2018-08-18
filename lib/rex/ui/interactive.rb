@@ -83,8 +83,13 @@ module Interactive
       self.completed = true
     end
 
-    # Return whether or not EOF was reached
-    return eof
+    # if another session was requested, store it
+    next_session = self.next_session
+    # clear the value from the object
+    self.next_session = nil
+
+    # return this session id
+    return next_session
   end
 
   #
@@ -103,6 +108,11 @@ module Interactive
   # Whether or not the session is currently being interacted with
   #
   attr_accessor   :interacting
+
+  #
+  # If another session needs interaction, this is where it goes
+  #
+  attr_accessor   :next_session
 
   #
   # Whether or not the session has completed interaction
@@ -202,49 +212,6 @@ protected
       } if (sd)
 
       Thread.pass
-    end
-  end
-
-
-  #
-  # Interacts between a local stream and a remote ring buffer. This has to use
-  # a secondary thread to prevent the select on the local stream from blocking
-  #
-  def interact_ring(ring)
-    begin
-
-    rdr = Rex::ThreadFactory.spawn("RingMonitor", false) do
-      seq = nil
-      while self.interacting
-
-        # Look for any pending data from the remote ring
-        nseq,data = ring.read_data(seq)
-
-        # Update the sequence number if necessary
-        seq = nseq || seq
-
-        # Write output to the local stream if successful
-        user_output.print(data) if data
-
-        # Wait for new data to arrive on this session
-        ring.wait(seq)
-      end
-    end
-
-    while self.interacting
-
-      # Look for any pending input from the local stream
-      sd = Rex::ThreadSafe.select([ _local_fd ], nil, [_local_fd], 5.0)
-
-      # Write input to the ring's input mechanism
-      if sd
-        data = user_input.gets
-        ring.put(data)
-      end
-    end
-
-    ensure
-      rdr.kill
     end
   end
 
